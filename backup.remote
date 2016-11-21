@@ -1,0 +1,105 @@
+#!/bin/bash
+LOGFILE="/var/backups/logs/backup.log"
+SQLCONF="~/backup/.dbconf"
+DB="sugarcrm"
+DIR1="/var/www/sugarcrm"
+DIR2="/var/backups/DB/sugarcrm.sql"
+TAR="/var/backups/SugarCRM-Backup.$(date +"%Y-%m-%d").tar.gz"
+BZIP="$TAR.bz2"
+SERVER="xxx.xxx.xxx.xxx"
+RDIR="/var/crm-backups/"
+from="Notifications@SugarCRM.com"
+to="EMAIL TO BE UPDATED"
+SMTP="SMTP TO BE UPDATED"
+user="EMAIL TO BE UPDATED"
+pass="PASSWORD TO BE UPDATED"
+Subj="Backup Notification"
+
+
+############################################################
+func_clear(){
+if [ -e "$DIR2" ]; then
+sudo rm "$DIR2"
+fi
+if [ -e "$BZIP" ]; then
+sudo rm "$BZIP"
+fi
+if [ -e "$TAR"  ]; then
+sudo rm "$TAR"
+fi
+}
+
+
+##################################################################################################
+backup_DB(){
+echo "Backing up database...." >> "$LOGFILE"
+sudo mysqldump --defaults-file="$SQLCONF" "$DB" > "$DIR2"
+if [ -e "$DIR2" ]; then
+echo -e "...done.\n" >> "$LOGFILE"
+else
+{
+Text1="DB Backup Error"
+echo "$Text1" >> "$LOGFILE"
+echo "Sending Notification...." >> "$LOGFILE"
+sendEmail -o tls=yes -f $from -t $to -s $SMTP -xu $user -xp $pass -u "$Text1" -m "$Text1 Occured.\nConsult the server logs for details.\n"
+echo "....Notification Sent" >> "$LOGFILE"
+echo -e "Backup Aborted due to $Text1\n"
+func_clear
+exit 1;
+}
+fi
+}
+
+####################################################################################################
+compress(){
+echo "Creating $TAR...." >> "$LOGFILE"
+sudo tar -cf "$TAR" "$DIR1" "$DIR2"
+sudo chown mohammad:mohammad "$TAR"
+echo "Compressing $TAR..." >> "$LOGFILE"
+bzip2 "$TAR"
+if [ -e "$BZIP" ]; then
+echo -e "....done.\n" >> "$LOGFILE"
+else
+{
+Text2="Compression Error"
+echo "$Text2" >> "$LOGFILE"
+echo "Sending Notification...." >> "$LOGFILE"
+sendEmail -o tls=yes -f $from -t $to -s $SMTP -xu $user -xp $pass -u "$Text2" -m "$Text2 Occured.\nConsult the server logs for details.\n"
+echo "....Notification Sent" >> "$LOGFILE"
+echo -e "Backup Aborted due to $Text2"
+func_clear
+exit 1;
+}
+fi
+}
+####################################################################################################
+transfer() {
+echo "Start transfer to $SERVER...." >> "$LOGFILE"
+chmod 775 "$BZIP"
+rsync -az --no-i-r -e "ssh -o LogLevel=quiet -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$BZIP" "$SERVER:$RDIR" > /dev/null 2>&1
+if ssh "mohammad@$SERVER" [ -e "$RDIR/SugarCRM-Backup.$(date +"%Y-%m-%d").tar.gz.bz2" ]; then
+echo -e "....done.\n" >> "$LOGFILE"
+else
+{
+Text3="Communication Error"
+echo "$Text3" >> "$LOGFILE"
+echo "Sending Notification...." >> "$LOGFILE"
+sendEmail -o tls=yes -f $from -t $to -s $SMTP -xu $user -xp $pass -u "$Text3" -m "$Text3 Occured.\nConsult the server logs for details.\n"
+echo "....Notification Sent" >> "$LOGFILE"
+echo -e "Backup Aborted due to $Text3"
+func_clear
+exit 1;
+}
+fi
+}
+####################################
+echo "#########################################################" >> "$LOGFILE"
+echo "Starting backups for `date`" >> "$LOGFILE"
+func_clear
+backup_DB
+compress
+transfer
+func_clear
+echo -e "Backup Completed on `date`"
+echo -e "Backup Completed on `date`" >> "$LOGFILE"
+echo "#########################################################" >> "$LOGFILE" 

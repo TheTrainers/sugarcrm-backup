@@ -1,0 +1,142 @@
+#!/bin/bash
+read -p "Enter month: " month
+read -p "Enter day  : " day
+LOGFILE="/var/restore/logs/restore.log"
+SQLCONF="~/backup/.dbconf"
+DB="sugarcrm"
+DIR1="/var/www/sugarcrm"
+DIR2="/var/restore/var/backups/DB/sugarcrm.sql"
+TAR="SugarCRM-Backup.$(date +"2016-$month-$day").tar.gz"
+BZIP="$TAR.bz2"
+SERVER="xxx.xxx.xxx.xxx"
+RDIR="/var/crm-backups/"
+from="Notifications@SugarCRM.com"
+to="EMAIL ADDRESS TO BE UPDATED"
+SMTP="SMTP SERVER TO BE UPDATED"
+user="USERNAME TO BE UPDATED"
+pass="PASSWORD TO BE UPDATED"
+Subj="Backup Notification"
+apache_temp="/home/mohammad/sugarcrm.conf"
+apache="/etc/apache2/sites-enabled/sugarcrm.conf"
+##################################################
+restore_apache(){
+if [ ! -f "$apache" ]; then
+{
+echo "Restore Apache Configurations" >> "$LOGFILE"
+touch "$apache_temp"
+echo "Alias /sugarcrm "/var/www/sugarcrm"" >> "$apache_temp"
+echo "<Directory "/var/www/sugarcrm">" >> "$apache_temp"
+echo "AllowOverride None" >> "$apache_temp"
+echo "Order allow,deny" >> "$apache_temp"
+echo "Allow from all" >> "$apache_temp"
+echo "</Directory>" >> "$apache_temp"
+sudo cp "$apache_temp" "$apache"
+sudo chmod 644 "$apache"
+sudo chown root:root "$apache"
+sudo service apache2 restart
+rm $apache_temp
+}
+fi
+}
+
+############################################################
+transfer(){
+echo "Start transfer from $SERVER...." >> "$LOGFILE"
+rsync -az --no-i-r -e "ssh -o LogLevel=quiet -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$SERVER:$RDIR/$BZIP" "/var/restore/$BZIP" > /dev/null 2>&1
+if [ -e "/var/restore/$BZIP" ]; then
+echo -e "....done.\n" >> "$LOGFILE"
+else
+{
+Text3="Communication Error"
+echo "$Text3" >> "$LOGFILE"
+echo -e "Backup Aborted due to $Text3"
+exit 1;
+}
+fi
+}
+####################################################################################
+decompress(){
+if [ -e "/var/restore/$BZIP" ]; then
+{
+echo "Decompressing $BZIP...." >> "$LOGFILE"
+bunzip2 "/var/restore/$BZIP"
+echo "Extracting $TAR" >> "$LOGFILE"
+sudo tar -xf "/var/restore/$TAR" -C "/var/restore/"
+if [ -d /var/restore/var ]; then
+echo -e "....done.\n" >> "$LOGFILE"
+else
+{
+Text2="Decompression Error"
+echo "$Text2" >> "$LOGFILE"
+echo -e "Backup Aborted due to $Text2"
+}
+fi
+}
+else
+{
+echo "/var/restore/$BZIP not Exit" >> "$LOGFILE"
+exit 1;
+}
+fi
+}
+####################################################################################
+restore_DB(){
+echo "Restoring database...." >> "$LOGFILE"
+mysqldump --defaults-file="$SQLCONF" "$DB" < "$DIR2"
+if [ -e "$DIR2" ]; then
+echo -e "...done.\n" >> "$LOGFILE"
+else
+{
+Text1="DB Restore Error"
+echo "$Text1" >> "$LOGFILE"
+echo -e "Backup Aborted due to $Text1\n"
+exit 1;
+}
+fi
+}
+##############################################################################
+restore_files(){
+echo "Restoring Web Server Files...." >> "$LOGFILE"
+sudo cp -fR /var/restore/var/www/sugarcrm/* /var/www/sugarcrm
+sudo chown www-data:www-data -vR /var/www/sugarcrm
+sudo chmod 766 /var/www/sugarcrm/config.php
+sudo chmod 766 /var/www/sugarcrm/custom
+sudo chmod 766 /var/www/sugarcrm/data
+sudo chmod 766 /var/www/sugarcrm/cache
+sudo chmod 766 /var/www/sugarcrm/modules
+restore_apache
+echo "Restore Files Completed" >> "$LOGFILE"
+}
+
+#########################################################
+func_clear(){
+if [ -e "/var/restore/$TAR" ]; then
+sudo rm "/var/restore/$TAR"
+fi
+if [ -e "/var/restore/$BZIP" ]; then
+sudo rm "/var/restore/$BZIP"
+fi
+if [ -d /var/restore/var ]; then
+sudo rm -rf /var/restore/var 
+fi
+}
+####################################################################################################
+echo "#########################################################" >> "$LOGFILE"
+echo "Starting Restore for `date`" >> "$LOGFILE"
+transfer
+decompress
+restore_DB
+restore_files
+func_clear
+echo -e "Restore Completed on `date`"
+echo -e "Restore Completed on `date`" >> "$LOGFILE"
+echo "#########################################################" >> "$LOGFILE"
+
+
+
+
+
+
+
+
+
